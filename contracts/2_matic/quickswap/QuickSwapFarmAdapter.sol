@@ -3,6 +3,9 @@
 
 pragma solidity =0.8.11;
 
+// helpers
+import "../../utils/AdapterModifiersBase.sol";
+
 //  interfaces
 import { IERC20 } from "@openzeppelin/contracts-0.8.x/token/ERC20/IERC20.sol";
 import { IAdapter } from "@optyfi/defi-legos/interfaces/defiAdapters/contracts/IAdapter.sol";
@@ -18,7 +21,7 @@ import { IStakingRewards } from "../../utils/interfaces/IStakingRewards.sol";
  * @dev Abstraction layer to quickswap farm's pools
  */
 
-contract QuickSwapFarmAdapter is IAdapter, IAdapterHarvestReward, IAdapterInvestLimit {
+contract QuickSwapFarmAdapter is IAdapter, IAdapterHarvestReward, IAdapterInvestLimit, AdapterModifiersBase {
     /**
      * @notice Uniswap V2 router contract address
      */
@@ -30,12 +33,15 @@ contract QuickSwapFarmAdapter is IAdapter, IAdapterHarvestReward, IAdapterInvest
     mapping(address => uint256) public maxDepositPoolPct;
     uint256 public maxDepositProtocolPct;
     MaxExposure public maxDepositProtocolMode;
-    address public adjuster;
     uint256 public constant DENOMINATOR = 10000;
 
-    constructor() {
-        adjuster = msg.sender;
+    /* solidity-disable no-empty-blocks*/
+    constructor(address _registry) AdapterModifiersBase(_registry) {
+        maxDepositProtocolPct = uint256(10000); // 100%
+        maxDepositProtocolMode = MaxExposure.Pct;
     }
+
+    /* solidity-enable no-empty-blocks*/
 
     /**
      * @inheritdoc IAdapter
@@ -284,8 +290,7 @@ contract QuickSwapFarmAdapter is IAdapter, IAdapterHarvestReward, IAdapterInvest
         address _liquidityPool,
         address _underlyingToken,
         uint256 _maxDepositAmount
-    ) external override {
-        require(adjuster == msg.sender, "Not adjuster");
+    ) external override onlyRiskOperator {
         maxDepositAmount[_liquidityPool][_underlyingToken] = _maxDepositAmount;
         emit LogMaxDepositAmount(_maxDepositAmount, msg.sender);
     }
@@ -293,8 +298,11 @@ contract QuickSwapFarmAdapter is IAdapter, IAdapterHarvestReward, IAdapterInvest
     /**
      * @inheritdoc IAdapterInvestLimit
      */
-    function setMaxDepositPoolPct(address _liquidityPool, uint256 _maxDepositPoolPct) external override {
-        require(adjuster == msg.sender, "Not adjuster");
+    function setMaxDepositPoolPct(address _liquidityPool, uint256 _maxDepositPoolPct)
+        external
+        override
+        onlyRiskOperator
+    {
         maxDepositPoolPct[_liquidityPool] = _maxDepositPoolPct;
         emit LogMaxDepositPoolPct(_maxDepositPoolPct, msg.sender);
     }
@@ -302,8 +310,7 @@ contract QuickSwapFarmAdapter is IAdapter, IAdapterHarvestReward, IAdapterInvest
     /**
      * @inheritdoc IAdapterInvestLimit
      */
-    function setMaxDepositProtocolPct(uint256 _maxDepositProtocolPct) external override {
-        require(adjuster == msg.sender, "Not adjuster");
+    function setMaxDepositProtocolPct(uint256 _maxDepositProtocolPct) external override onlyRiskOperator {
         maxDepositProtocolPct = _maxDepositProtocolPct;
         emit LogMaxDepositProtocolPct(_maxDepositProtocolPct, msg.sender);
     }
@@ -311,8 +318,7 @@ contract QuickSwapFarmAdapter is IAdapter, IAdapterHarvestReward, IAdapterInvest
     /**
      * @inheritdoc IAdapterInvestLimit
      */
-    function setMaxDepositProtocolMode(MaxExposure _mode) external override {
-        require(adjuster == msg.sender, "Not adjuster");
+    function setMaxDepositProtocolMode(MaxExposure _mode) external override onlyRiskOperator {
         maxDepositProtocolMode = _mode;
         emit LogMaxDepositProtocolMode(_mode, msg.sender);
     }

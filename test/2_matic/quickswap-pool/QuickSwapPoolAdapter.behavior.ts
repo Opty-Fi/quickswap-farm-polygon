@@ -1,7 +1,7 @@
 import hre from "hardhat";
 import chai, { expect } from "chai";
 import { solidity } from "ethereum-waffle";
-import { Network } from "@ethersproject/networks";
+// import { Network } from "@ethersproject/networks";
 import { getAddress } from "ethers/lib/utils";
 import { getOverrideOptions } from "../../utils";
 import { ADDRESS, ABI } from "../quickSwapFactory";
@@ -18,25 +18,20 @@ export function shouldBehaveLikeQuickSwapPoolAdapter(
   underlyingTokenAddress: string,
 ): void {
   it(`${token1Name} - ${token2Name} Pool Test - underlyingToken is ${underlyingTokenName}`, async function () {
-    const matic: Network = {
-      name: "matic",
-      chainId: 137,
-      _defaultProvider: providers => new providers.JsonRpcProvider("https://polygon-rpc.com/"),
-    };
-
-    const defaultProvider = hre.ethers.getDefaultProvider(matic);
-    const quickSwapFactory = new hre.ethers.Contract(ADDRESS, ABI, defaultProvider);
+    const quickSwapFactory = await hre.ethers.getContractAt(ABI, ADDRESS);
 
     const pool = await quickSwapFactory.getPair(token1Address, token2Address);
 
     // underlying token and instance
     const underlyingToken: string = underlyingTokenAddress;
-    const tokenInstance = new hre.ethers.Contract(underlyingToken, TOKEN_ABI, defaultProvider);
+    const tokenInstance = await hre.ethers.getContractAt(TOKEN_ABI, underlyingToken);
     const decimals = await tokenInstance.decimals();
 
-    await this.quickSwapPoolAdapter.connect(this.qsigners.deployer).setMaxDepositProtocolMode(0, getOverrideOptions());
     await this.quickSwapPoolAdapter
-      .connect(this.qsigners.deployer)
+      .connect(this.qsigners.riskOperator)
+      .setMaxDepositProtocolMode(0, getOverrideOptions());
+    await this.quickSwapPoolAdapter
+      .connect(this.qsigners.riskOperator)
       .setMaxDepositAmount(pool, underlyingToken, hre.ethers.utils.parseUnits("10000", decimals), getOverrideOptions());
 
     // 1. deposit some underlying tokens
@@ -195,7 +190,7 @@ export function shouldBehaveLikeQuickSwapPoolAdapter(
     // set maxDepositAmount is 0.01
     let setMaxDepositAmount = hre.ethers.utils.parseUnits("0.01", decimals);
     await this.quickSwapPoolAdapter
-      .connect(this.qsigners.deployer)
+      .connect(this.qsigners.riskOperator)
       .setMaxDepositAmount(pool, underlyingToken, setMaxDepositAmount, getOverrideOptions());
     underlyingTokenBalance = await this.testDeFiAdapter.getERC20TokenBalance(
       underlyingToken,
@@ -214,12 +209,14 @@ export function shouldBehaveLikeQuickSwapPoolAdapter(
     expect(underlyingTokenBalanceAfterDeposit).to.be.gte(underlyingTokenBalance.sub(setMaxDepositAmount));
 
     // set maxDepositProtocolMode is Pct mode
-    await this.quickSwapPoolAdapter.connect(this.qsigners.deployer).setMaxDepositProtocolMode(1, getOverrideOptions());
+    await this.quickSwapPoolAdapter
+      .connect(this.qsigners.riskOperator)
+      .setMaxDepositProtocolMode(1, getOverrideOptions());
 
     // 5.5 assert whether deposit amount is correct or not when deposit amount is less than max deposit pool amount
     // set max deposit pool percent is 10%
     await this.quickSwapPoolAdapter
-      .connect(this.qsigners.deployer)
+      .connect(this.qsigners.riskOperator)
       .setMaxDepositPoolPct(pool, 1000, getOverrideOptions());
     underlyingTokenBalance = await this.testDeFiAdapter.getERC20TokenBalance(
       underlyingToken,
@@ -248,7 +245,9 @@ export function shouldBehaveLikeQuickSwapPoolAdapter(
 
     // 5.6 assert whether deposit amount is correct or not when deposit amount is more than max deposit pool amount
     // set max deposit pool percent is 0.01%
-    await this.quickSwapPoolAdapter.connect(this.qsigners.deployer).setMaxDepositPoolPct(pool, 1, getOverrideOptions());
+    await this.quickSwapPoolAdapter
+      .connect(this.qsigners.riskOperator)
+      .setMaxDepositPoolPct(pool, 1, getOverrideOptions());
     underlyingTokenBalance = await this.testDeFiAdapter.getERC20TokenBalance(
       underlyingToken,
       this.testDeFiAdapter.address,
@@ -276,9 +275,13 @@ export function shouldBehaveLikeQuickSwapPoolAdapter(
 
     // 5.7 assert whether deposit amount is correct or not when maxDepositPoolPct and maxDepositProtocolPct are 0%
     // set maxDepositPoolPct is 0%
-    await this.quickSwapPoolAdapter.connect(this.qsigners.deployer).setMaxDepositPoolPct(pool, 0, getOverrideOptions());
+    await this.quickSwapPoolAdapter
+      .connect(this.qsigners.riskOperator)
+      .setMaxDepositPoolPct(pool, 0, getOverrideOptions());
     // set maxDepositProtocolPct is 0%
-    await this.quickSwapPoolAdapter.connect(this.qsigners.deployer).setMaxDepositProtocolPct(0, getOverrideOptions());
+    await this.quickSwapPoolAdapter
+      .connect(this.qsigners.riskOperator)
+      .setMaxDepositProtocolPct(0, getOverrideOptions());
     underlyingTokenBalance = await this.testDeFiAdapter.getERC20TokenBalance(
       underlyingToken,
       this.testDeFiAdapter.address,
@@ -299,7 +302,7 @@ export function shouldBehaveLikeQuickSwapPoolAdapter(
     // 5.8 assert whether deposit amount is correct or not when deposit amount is less than max deposit protocol amount
     // set maxDepositProtocolPct is 10%
     await this.quickSwapPoolAdapter
-      .connect(this.qsigners.deployer)
+      .connect(this.qsigners.riskOperator)
       .setMaxDepositProtocolPct(1000, getOverrideOptions());
     underlyingTokenBalance = await this.testDeFiAdapter.getERC20TokenBalance(
       underlyingToken,
@@ -327,7 +330,9 @@ export function shouldBehaveLikeQuickSwapPoolAdapter(
 
     // 5.9 assert whether deposit amount is correct or not when deposit amount is more than max deposit protocol amount
     // set maxDepositProtocolPct is 1%
-    await this.quickSwapPoolAdapter.connect(this.qsigners.deployer).setMaxDepositProtocolPct(1, getOverrideOptions());
+    await this.quickSwapPoolAdapter
+      .connect(this.qsigners.riskOperator)
+      .setMaxDepositProtocolPct(1, getOverrideOptions());
     underlyingTokenBalance = await this.testDeFiAdapter.getERC20TokenBalance(
       underlyingToken,
       this.testDeFiAdapter.address,
@@ -381,18 +386,18 @@ export function shouldBehaveLikeQuickSwapPoolAdapter(
           hre.ethers.utils.parseUnits("1000", decimals),
           getOverrideOptions(),
         ),
-    ).to.be.revertedWith("Not adjuster");
+    ).to.be.revertedWith("caller is not the riskOperator");
     // asserts whether the function caller is this contract's adjuster or not
     await expect(
       this.quickSwapPoolAdapter.connect(this.qsigners.admin).setMaxDepositPoolPct(pool, 1000, getOverrideOptions()),
-    ).to.be.revertedWith("Not adjuster");
+    ).to.be.revertedWith("caller is not the riskOperator");
     // asserts whether the function caller is this contract's adjuster or not
     await expect(
       this.quickSwapPoolAdapter.connect(this.qsigners.admin).setMaxDepositProtocolPct(1000, getOverrideOptions()),
-    ).to.be.revertedWith("Not adjuster");
+    ).to.be.revertedWith("caller is not the riskOperator");
     // asserts whether the function caller is this contract's adjuster or not
     await expect(
       this.quickSwapPoolAdapter.connect(this.qsigners.admin).setMaxDepositProtocolMode(0, getOverrideOptions()),
-    ).to.be.revertedWith("Not adjuster");
+    ).to.be.revertedWith("caller is not the riskOperator");
   }).timeout(100000);
 }

@@ -116,7 +116,7 @@ export const BLOCK_TO_FORK = {
   [eEthereumNetwork.goerli]: undefined,
   [eEthereumNetwork.hardhat]: undefined,
   [ePolygonNetwork.mumbai]: undefined,
-  [ePolygonNetwork.matic]: undefined, //21435710
+  [ePolygonNetwork.matic]: 26588176, //21435710
   [eXDaiNetwork.xdai]: undefined,
   [eAvalancheNetwork.avalanche]: undefined,
   [eAvalancheNetwork.fuji]: undefined,

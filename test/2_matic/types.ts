@@ -8,6 +8,8 @@ import { TestDeFiAdapter } from "../../typechain/TestDeFiAdapter";
 export interface Signers {
   admin: SignerWithAddress;
   owner: SignerWithAddress;
+  operator: SignerWithAddress;
+  riskOperator: SignerWithAddress;
   deployer: SignerWithAddress;
   alice: SignerWithAddress;
   bob: SignerWithAddress;

@@ -1,12 +1,13 @@
 import hre from "hardhat";
 import chai, { expect } from "chai";
 import { solidity } from "ethereum-waffle";
-import { Network } from "@ethersproject/networks";
+// import { Network } from "@ethersproject/networks";
 import { STAKING_FACTORY_ADDRESS, STAKING_FACTORY_ABI } from "./StakingRewardsFactory";
 import { getOverrideOptions } from "../../utils";
 import { ADDRESS, ABI } from "../quickSwapFactory";
 import { TOKEN_ABI } from "../token.abi";
 import { getAddress } from "ethers/lib/utils";
+import { IERC20_ARTIFACT_PATH } from "../constants";
 
 chai.use(solidity);
 
@@ -17,33 +18,24 @@ export function shouldBehaveLikeQuickSwapFarmAdapter(
   token2Address: string,
 ): void {
   it(`${token1Name} - ${token2Name} Farm Test`, async function () {
-    const matic: Network = {
-      name: "matic",
-      chainId: 137,
-      _defaultProvider: providers => new providers.JsonRpcProvider("https://polygon-rpc.com/"),
-    };
-
-    const defaultProvider = hre.ethers.getDefaultProvider(matic);
-    const quickSwapFactory = new hre.ethers.Contract(ADDRESS, ABI, defaultProvider);
+    const quickSwapFactory = await hre.ethers.getContractAt(ABI, ADDRESS);
 
     const pool = await quickSwapFactory.getPair(token1Address, token2Address);
-    const liquidityPoolInstance = await hre.ethers.getContractAt("IERC20", pool);
+    const liquidityPoolInstance = await hre.ethers.getContractAt(IERC20_ARTIFACT_PATH, pool);
     const underlyingToken = pool;
 
-    const stakingRewardsFactory = new hre.ethers.Contract(
-      STAKING_FACTORY_ADDRESS,
-      STAKING_FACTORY_ABI,
-      defaultProvider,
-    );
+    const stakingRewardsFactory = await hre.ethers.getContractAt(STAKING_FACTORY_ABI, STAKING_FACTORY_ADDRESS);
     const farmAddress = await stakingRewardsFactory.stakingRewardsInfoByStakingToken(underlyingToken);
     const liquidityPool = farmAddress[0];
 
     const quickTokenAddress: string = getAddress("0x831753DD7087CaC61aB5644b308642cc1c33Dc13");
-    const quickTokenInstance = await hre.ethers.getContractAt("IERC20", quickTokenAddress);
+    const quickTokenInstance = await hre.ethers.getContractAt(IERC20_ARTIFACT_PATH, quickTokenAddress);
 
-    await this.quickSwapFarmAdapter.connect(this.qsigners.deployer).setMaxDepositProtocolMode(0, getOverrideOptions());
     await this.quickSwapFarmAdapter
-      .connect(this.qsigners.deployer)
+      .connect(this.qsigners.riskOperator)
+      .setMaxDepositProtocolMode(0, getOverrideOptions());
+    await this.quickSwapFarmAdapter
+      .connect(this.qsigners.riskOperator)
       .setMaxDepositAmount(pool, underlyingToken, hre.ethers.utils.parseEther("10000"), getOverrideOptions());
 
     // 1. Deposit Some underlying tokens
@@ -52,8 +44,8 @@ export function shouldBehaveLikeQuickSwapFarmAdapter(
     const token1DepositAmount = token1Balance.div(2);
     const token2DepositAmount = token2Balance.div(2);
 
-    const token1Instance = new hre.ethers.Contract(token1Address, TOKEN_ABI, defaultProvider);
-    const token2Instance = new hre.ethers.Contract(token2Address, TOKEN_ABI, defaultProvider);
+    const token1Instance = await hre.ethers.getContractAt(TOKEN_ABI, token1Address);
+    const token2Instance = await hre.ethers.getContractAt(TOKEN_ABI, token2Address);
 
     await token1Instance.connect(this.qsigners.alice).approve(this.uniswapV2Router02.address, token1DepositAmount);
     await token2Instance.connect(this.qsigners.alice).approve(this.uniswapV2Router02.address, token2DepositAmount);
@@ -261,11 +253,11 @@ export function shouldBehaveLikeQuickSwapFarmAdapter(
 
     // set maxDepositPoolPct is 10%
     await this.quickSwapFarmAdapter
-      .connect(this.qsigners.deployer)
+      .connect(this.qsigners.riskOperator)
       .setMaxDepositPoolPct(pool, 1000, getOverrideOptions());
     // set maxDepositProtocolPct is 10%
     await this.quickSwapFarmAdapter
-      .connect(this.qsigners.deployer)
+      .connect(this.qsigners.riskOperator)
       .setMaxDepositProtocolPct(1000, getOverrideOptions());
     // call getAddLiquidityCodes function
     await this.quickSwapFarmAdapter.getAddLiquidityCodes(this.testDeFiAdapter.address, underlyingToken);
@@ -300,18 +292,18 @@ export function shouldBehaveLikeQuickSwapFarmAdapter(
       this.quickSwapFarmAdapter
         .connect(this.qsigners.admin)
         .setMaxDepositAmount(pool, underlyingToken, hre.ethers.utils.parseEther("100"), getOverrideOptions()),
-    ).to.be.revertedWith("Not adjuster");
+    ).to.be.revertedWith("caller is not the riskOperator");
     // asserts whether the function caller is this contract's adjuster or not
     await expect(
       this.quickSwapFarmAdapter.connect(this.qsigners.admin).setMaxDepositPoolPct(pool, 1000, getOverrideOptions()),
-    ).to.be.revertedWith("Not adjuster");
+    ).to.be.revertedWith("caller is not the riskOperator");
     // asserts whether the function caller is this contract's adjuster or not
     await expect(
       this.quickSwapFarmAdapter.connect(this.qsigners.admin).setMaxDepositProtocolPct(1000, getOverrideOptions()),
-    ).to.be.revertedWith("Not adjuster");
+    ).to.be.revertedWith("caller is not the riskOperator");
     // asserts whether the function caller is this contract's adjuster or not
     await expect(
       this.quickSwapFarmAdapter.connect(this.qsigners.admin).setMaxDepositProtocolMode(0, getOverrideOptions()),
-    ).to.be.revertedWith("Not adjuster");
+    ).to.be.revertedWith("caller is not the riskOperator");
   }).timeout(100000);
 }

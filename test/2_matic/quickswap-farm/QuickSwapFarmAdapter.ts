@@ -8,6 +8,7 @@ import { getOverrideOptions } from "../../utils";
 import { Signers } from "../types";
 import { shouldBehaveLikeQuickSwapFarmAdapter } from "./QuickSwapFarmAdapter.behavior";
 import { USD, BTC } from "../token.address";
+import { IERC20_ARTIFACT_PATH } from "../constants";
 
 const { deployContract } = hre.waffle;
 
@@ -52,16 +53,18 @@ describe("Unit tests", function () {
     this.qsigners.owner = signers[1];
     this.qsigners.deployer = signers[2];
     this.qsigners.alice = signers[3];
+    this.qsigners.operator = signers[4];
+    this.qsigners.riskOperator = signers[5];
     this.qsigners.daiWhale = await hre.ethers.getSigner(DAI_WHALE);
     this.qsigners.usdtWhale = await hre.ethers.getSigner(USDT_WHALE);
     this.qsigners.usdcWhale = await hre.ethers.getSigner(USDC_WHALE);
     this.qsigners.wbtcWhale = await hre.ethers.getSigner(WBTC_WHALE);
     this.qsigners.pbtcWhale = await hre.ethers.getSigner(PBTC_WHALE);
-    const dai = await hre.ethers.getContractAt("IERC20", DAI_ADDRESS, this.qsigners.daiWhale);
-    const usdt = await hre.ethers.getContractAt("IERC20", USDT_ADDRESS, this.qsigners.usdtWhale);
-    const usdc = await hre.ethers.getContractAt("IERC20", USDC_ADDRESS, this.qsigners.usdcWhale);
-    const wbtc = await hre.ethers.getContractAt("IERC20", WBTC_ADDRESS, this.qsigners.wbtcWhale);
-    const pbtc = await hre.ethers.getContractAt("IERC20", PBTC_ADDRESS, this.qsigners.pbtcWhale);
+    const dai = await hre.ethers.getContractAt(IERC20_ARTIFACT_PATH, DAI_ADDRESS, this.qsigners.daiWhale);
+    const usdt = await hre.ethers.getContractAt(IERC20_ARTIFACT_PATH, USDT_ADDRESS, this.qsigners.usdtWhale);
+    const usdc = await hre.ethers.getContractAt(IERC20_ARTIFACT_PATH, USDC_ADDRESS, this.qsigners.usdcWhale);
+    const wbtc = await hre.ethers.getContractAt(IERC20_ARTIFACT_PATH, WBTC_ADDRESS, this.qsigners.wbtcWhale);
+    const pbtc = await hre.ethers.getContractAt(IERC20_ARTIFACT_PATH, PBTC_ADDRESS, this.qsigners.pbtcWhale);
     // get the UniswapV2Router contract instance
     this.uniswapV2Router02 = <IUniswapV2Router02>(
       await hre.ethers.getContractAt("IUniswapV2Router02", "0xa5E0829CaCEd8fFDD4De3c43696c57F7D7A678ff")
@@ -73,10 +76,20 @@ describe("Unit tests", function () {
       await deployContract(this.qsigners.deployer, testDeFiAdapterArtifact, [], getOverrideOptions())
     );
 
+    const registryArtifact: Artifact = await hre.artifacts.readArtifact("IAdapterRegistryBase");
+    this.mockRegistry = await hre.waffle.deployMockContract(this.qsigners.deployer, registryArtifact.abi);
+    await this.mockRegistry.mock.getOperator.returns(this.qsigners.operator.address);
+    await this.mockRegistry.mock.getRiskOperator.returns(this.qsigners.riskOperator.address);
+
     // deploy QuickSwap Farm Adapter
     const quickSwapFarmAdapterArtifact: Artifact = await hre.artifacts.readArtifact("QuickSwapFarmAdapter");
     this.quickSwapFarmAdapter = <QuickSwapFarmAdapter>(
-      await deployContract(this.qsigners.deployer, quickSwapFarmAdapterArtifact, [], getOverrideOptions())
+      await deployContract(
+        this.qsigners.deployer,
+        quickSwapFarmAdapterArtifact,
+        [this.mockRegistry.address],
+        getOverrideOptions(),
+      )
     );
 
     // fund the whale's wallet with gas
