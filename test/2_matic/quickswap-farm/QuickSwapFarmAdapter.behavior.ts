@@ -1,7 +1,6 @@
 import hre from "hardhat";
 import chai, { expect } from "chai";
 import { solidity } from "ethereum-waffle";
-// import { Network } from "@ethersproject/networks";
 import { STAKING_FACTORY_ADDRESS, STAKING_FACTORY_ABI } from "./StakingRewardsFactory";
 import { getOverrideOptions } from "../../utils";
 import { ADDRESS, ABI } from "../quickSwapFactory";
