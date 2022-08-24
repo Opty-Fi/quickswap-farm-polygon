@@ -6,15 +6,19 @@ pragma solidity =0.8.11;
 // helpers
 import "../../utils/AdapterModifiersBase.sol";
 
+// libraries
+import { Babylonian } from "@uniswap/lib/contracts/libraries/Babylonian.sol";
+import { UniswapV2Library } from "../../libraries/UniswapV2Library.sol";
+
 // interfaces
 import { IERC20 } from "@openzeppelin/contracts-0.8.x/token/ERC20/IERC20.sol";
+import { IERC20Metadata } from "@openzeppelin/contracts-0.8.x/token/ERC20/extensions/IERC20Metadata.sol";
 import { IAdapter } from "@optyfi/defi-legos/interfaces/defiAdapters/contracts/IAdapter.sol";
 import { IAdapterInvestLimit, MaxExposure } from "@optyfi/defi-legos/interfaces/defiAdapters/contracts/IAdapterInvestLimit.sol";
 import { IUniswapV2Router02 } from "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
-import { IUniswapV2Pair } from "@uniswap/v2-core/contracts/interfaces/IUniswapV2Pair.sol";
+import { IUniswapV2Pair } from "@optyfi/defi-legos/ethereum/uniswapV2/contracts/IUniswapV2Pair.sol";
 import { IUniswapV2Factory } from "@uniswap/v2-core/contracts/interfaces/IUniswapV2Factory.sol";
-import { Babylonian } from "@uniswap/lib/contracts/libraries/Babylonian.sol";
-import { UniswapV2Library } from "../../libraries/UniswapV2Library.sol";
+import { IOptyFiOracle } from "../../utils/optyfi-oracle/contracts/interfaces/IOptyFiOracle.sol";
 
 /**
  * @title Adapter for QuickSwap.finance protocol
@@ -23,24 +27,135 @@ import { UniswapV2Library } from "../../libraries/UniswapV2Library.sol";
  */
 
 contract QuickSwapPoolAdapter is IAdapter, IAdapterInvestLimit, AdapterModifiersBase {
-    /**
-     * @notice Uniswap V2 router contract address
-     */
-    IUniswapV2Router02 public constant quickswapRouter = IUniswapV2Router02(0xa5E0829CaCEd8fFDD4De3c43696c57F7D7A678ff);
-    IUniswapV2Factory public constant factoryRouter = IUniswapV2Factory(0x5757371414417b8C6CAad45bAeF941aBc7d3Ab32);
-    mapping(address => mapping(address => uint256)) public maxDepositAmount;
-    mapping(address => uint256) public maxDepositPoolPct;
-    uint256 public maxDepositProtocolPct;
-    MaxExposure public maxDepositProtocolMode;
-    uint256 public constant DENOMINATOR = 10000;
-
-    /* solidity-disable no-empty-blocks*/
-    constructor(address _registry) AdapterModifiersBase(_registry) {
-        maxDepositProtocolPct = uint256(10000); // 100%
-        maxDepositProtocolMode = MaxExposure.Pct;
+    struct Tolerance {
+        address liquidityPool;
+        uint256 tolerance;
     }
 
-    /* solidity-enable no-empty-blocks*/
+    struct Slippage {
+        address liquidityPool;
+        address wantToken;
+        uint256 slippage;
+    }
+
+    /** @notice Quickswap router contract on Polygon mainnet */
+    IUniswapV2Router02 public constant quickswapRouter = IUniswapV2Router02(0xa5E0829CaCEd8fFDD4De3c43696c57F7D7A678ff);
+
+    /** @notice Quickswap factory contract on Polygon mainnet */
+    IUniswapV2Factory public constant quickswapFactory = IUniswapV2Factory(0x5757371414417b8C6CAad45bAeF941aBc7d3Ab32);
+
+    /** @notice Sushiswap WMATIC-USDC liquidity pool address */
+    address public constant WMATIC_USDC = address(0x6e7a5FAFcec6BB1e78bAE2A1F0B612012BF14827);
+
+    /** @notice WMATIC token address*/
+    address public constant WMATIC = address(0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270);
+
+    /** @notice USDC token address*/
+    address public constant USDC = address(0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174);
+
+    /** @notice Denominator for basis points calculations */
+    uint256 public constant DENOMINATOR = 10000;
+
+    /** @notice OptyFi Oracle contract on Polygon mainnet */
+    IOptyFiOracle public optyFiOracle;
+
+    /** @notice max deposit's protocol value in percentage */
+    uint256 public maxDepositProtocolPct;
+
+    /** @notice max deposit value datatypes */
+    MaxExposure public maxDepositProtocolMode;
+
+    /** @notice Maps liquidityPool to max deposit value in absolute value for a specific token */
+    mapping(address => mapping(address => uint256)) public maxDepositAmount;
+
+    /** @notice Maps liquidityPool to max deposit value in percentage */
+    mapping(address => uint256) public maxDepositPoolPct;
+
+    /** @notice Maps liquidity pool to maximum price deviation */
+    mapping(address => uint256) public liquidityPoolToTolerance;
+
+    /** @notice Maps liquidity pool to want token to slippage */
+    mapping(address => mapping(address => uint256)) public liquidityPoolToWantTokenToSlippage;
+
+    constructor(address _registry, address _optyFiOracle) AdapterModifiersBase(_registry) {
+        maxDepositProtocolPct = uint256(10000); // 100%
+        maxDepositProtocolMode = MaxExposure.Pct;
+        optyFiOracle = IOptyFiOracle(_optyFiOracle);
+        liquidityPoolToTolerance[WMATIC_USDC] = uint256(50); // 0.5%
+        liquidityPoolToWantTokenToSlippage[WMATIC_USDC][WMATIC] = uint256(50); // 0.50%
+        liquidityPoolToWantTokenToSlippage[WMATIC_USDC][USDC] = uint256(50); // 0.50%
+    }
+
+    /**
+     * @notice Sets the OptyFi Oracle contract
+     * @param _optyFiOracle OptyFi Oracle contract address
+     */
+    function setOptyFiOracle(address _optyFiOracle) external onlyOperator {
+        optyFiOracle = IOptyFiOracle(_optyFiOracle);
+    }
+
+    /**
+     * @notice Sets the price deviation tolerance for a set of liquidity pools
+     * @param _tolerances array of Tolerance structs that links liquidity pools to tolerances
+     */
+    function setLiquidityPoolToTolerance(Tolerance[] calldata _tolerances) external onlyRiskOperator {
+        uint256 _len = _tolerances.length;
+        for (uint256 i; i < _len; i++) {
+            liquidityPoolToTolerance[_tolerances[i].liquidityPool] = _tolerances[i].tolerance;
+        }
+    }
+
+    /**
+     * @notice Sets slippage per want token of pair contract
+     * @param _slippages array of Slippage structs that links liquidity pools to slippage per want token
+     */
+    function setLiquidityPoolToWantTokenToSlippage(Slippage[] calldata _slippages) external onlyRiskOperator {
+        uint256 _len = _slippages.length;
+        for (uint256 i; i < _len; i++) {
+            liquidityPoolToWantTokenToSlippage[_slippages[i].liquidityPool][_slippages[i].wantToken] = _slippages[i]
+                .slippage;
+        }
+    }
+
+    /**
+     * @inheritdoc IAdapterInvestLimit
+     */
+    function setMaxDepositAmount(
+        address _liquidityPool,
+        address _underlyingToken,
+        uint256 _maxDepositAmount
+    ) external override onlyRiskOperator {
+        maxDepositAmount[_liquidityPool][_underlyingToken] = _maxDepositAmount;
+        emit LogMaxDepositAmount(_maxDepositAmount, msg.sender);
+    }
+
+    /**
+     * @inheritdoc IAdapterInvestLimit
+     */
+    function setMaxDepositPoolPct(address _liquidityPool, uint256 _maxDepositPoolPct)
+        external
+        override
+        onlyRiskOperator
+    {
+        maxDepositPoolPct[_liquidityPool] = _maxDepositPoolPct;
+        emit LogMaxDepositPoolPct(_maxDepositPoolPct, msg.sender);
+    }
+
+    /**
+     * @inheritdoc IAdapterInvestLimit
+     */
+    function setMaxDepositProtocolPct(uint256 _maxDepositProtocolPct) external override onlyRiskOperator {
+        maxDepositProtocolPct = _maxDepositProtocolPct;
+        emit LogMaxDepositProtocolPct(_maxDepositProtocolPct, msg.sender);
+    }
+
+    /**
+     * @inheritdoc IAdapterInvestLimit
+     */
+    function setMaxDepositProtocolMode(MaxExposure _mode) external override onlyRiskOperator {
+        maxDepositProtocolMode = _mode;
+        emit LogMaxDepositProtocolMode(_mode, msg.sender);
+    }
 
     /**
      * @inheritdoc IAdapter
@@ -89,11 +204,18 @@ contract QuickSwapPoolAdapter is IAdapter, IAdapterInvestLimit, AdapterModifiers
         uint256 _depositAmount
     ) public view override returns (uint256) {
         (uint256 reserve0, uint256 reserve1, ) = IUniswapV2Pair(_liquidityPool).getReserves();
+        address _token0 = IUniswapV2Pair(_liquidityPool).token0();
+        address _token1 = IUniswapV2Pair(_liquidityPool).token1();
         if (IUniswapV2Pair(_liquidityPool).token0() != _underlyingToken) {
-            (reserve0, reserve1) = (reserve1, reserve0);
+            (reserve0, _token0, reserve1, _token1) = (reserve1, _token1, reserve0, _token0);
         }
-        uint256 swapInAmount = _calculateSwapInAmount(reserve0, _depositAmount);
-        uint256 swapOutAmount = UniswapV2Library.getAmountOut(swapInAmount, reserve0, reserve1);
+
+        _isPoolBalanced(_token0, _token1, reserve0, reserve1, _liquidityPool);
+
+        // assuming the function is called by vault as msg.sender
+        uint256 remainingAmount1 = IERC20(_token1).balanceOf(msg.sender);
+        uint256 swapInAmount = _calculateSwapInAmount(reserve0, reserve1, _depositAmount, remainingAmount1);
+        uint256 swapOutAmount = _calculateSwapOutAmount(swapInAmount, _token0, _token1) + remainingAmount1;
         reserve0 = reserve0 + swapInAmount;
         reserve1 = reserve1 - swapOutAmount;
         uint256 _totalSupply = _getPoolTotalSupply(_liquidityPool, reserve0, reserve1);
@@ -171,8 +293,10 @@ contract QuickSwapPoolAdapter is IAdapter, IAdapterInvestLimit, AdapterModifiers
                     (reserve0, reserve1) = (reserve1, reserve0);
                     toToken = IUniswapV2Pair(_liquidityPool).token0();
                 }
-                swapInAmount = _calculateSwapInAmount(reserve0, _amount);
-                swapOutAmount = UniswapV2Library.getAmountOut(swapInAmount, reserve0, reserve1);
+                _isPoolBalanced(_underlyingToken, toToken, reserve0, reserve1, _liquidityPool);
+
+                swapInAmount = _calculateSwapInAmount(reserve0, reserve1, _amount, IERC20(toToken).balanceOf(_vault));
+                swapOutAmount = _calculateSwapOutAmount(swapInAmount, _underlyingToken, toToken);
             }
             _codes[1] = abi.encode(
                 _underlyingToken,
@@ -181,12 +305,14 @@ contract QuickSwapPoolAdapter is IAdapter, IAdapterInvestLimit, AdapterModifiers
             address[] memory path = new address[](2);
             path[0] = _underlyingToken;
             path[1] = toToken;
+
             _codes[2] = abi.encode(
                 quickswapRouter,
                 abi.encodeWithSignature(
                     "swapExactTokensForTokens(uint256,uint256,address[],address,uint256)",
                     swapInAmount,
-                    0,
+                    (swapOutAmount * (DENOMINATOR - liquidityPoolToWantTokenToSlippage[_liquidityPool][toToken])) /
+                        DENOMINATOR,
                     path,
                     _vault,
                     type(uint256).max
@@ -198,7 +324,11 @@ contract QuickSwapPoolAdapter is IAdapter, IAdapterInvestLimit, AdapterModifiers
             );
             _codes[4] = abi.encode(
                 toToken,
-                abi.encodeWithSignature("approve(address,uint256)", quickswapRouter, swapOutAmount)
+                abi.encodeWithSignature(
+                    "approve(address,uint256)",
+                    quickswapRouter,
+                    swapOutAmount + IERC20(toToken).balanceOf(_vault)
+                )
             );
             _codes[5] = abi.encode(
                 quickswapRouter,
@@ -207,7 +337,8 @@ contract QuickSwapPoolAdapter is IAdapter, IAdapterInvestLimit, AdapterModifiers
                     _underlyingToken,
                     toToken,
                     _amount - swapInAmount,
-                    swapOutAmount,
+                    ((swapOutAmount * (DENOMINATOR - liquidityPoolToWantTokenToSlippage[_liquidityPool][toToken])) /
+                        DENOMINATOR) + IERC20(toToken).balanceOf(_vault),
                     0,
                     0,
                     _vault,
@@ -236,14 +367,26 @@ contract QuickSwapPoolAdapter is IAdapter, IAdapterInvestLimit, AdapterModifiers
                 _liquidityPool,
                 abi.encodeWithSignature("approve(address,uint256)", quickswapRouter, _shares)
             );
+            uint256 outAmountUT;
+            uint256 outAmountToToken;
             address toToken = IUniswapV2Pair(_liquidityPool).token1();
-            (uint256 outAmountA, uint256 outAmountB, ) = IUniswapV2Pair(_liquidityPool).getReserves();
-            uint256 _totalSupply = _getPoolTotalSupply(_liquidityPool, outAmountA, outAmountB);
-            outAmountA = (outAmountA * _shares) / _totalSupply;
-            outAmountB = (outAmountB * _shares) / _totalSupply;
-            if (toToken == _underlyingToken) {
-                toToken = IUniswapV2Pair(_liquidityPool).token0();
-                (outAmountA, outAmountB) = (outAmountB, outAmountA);
+            (uint256 reserve0, uint256 reserve1, ) = IUniswapV2Pair(_liquidityPool).getReserves();
+
+            {
+                uint256 _totalSupply = _getPoolTotalSupply(_liquidityPool, reserve0, reserve1);
+                outAmountUT = (reserve0 * _shares) / _totalSupply;
+                outAmountToToken = (reserve1 * _shares) / _totalSupply;
+                if (toToken == _underlyingToken) {
+                    (reserve0, reserve1, outAmountUT, outAmountToToken) = (
+                        reserve1,
+                        reserve0,
+                        outAmountToToken,
+                        outAmountUT
+                    );
+                    toToken = IUniswapV2Pair(_liquidityPool).token0();
+                }
+
+                _isPoolBalanced(_underlyingToken, toToken, reserve0, reserve1, _liquidityPool);
             }
             _codes[2] = abi.encode(
                 quickswapRouter,
@@ -252,26 +395,37 @@ contract QuickSwapPoolAdapter is IAdapter, IAdapterInvestLimit, AdapterModifiers
                     _underlyingToken,
                     toToken,
                     _shares,
-                    0,
-                    0,
+                    outAmountUT,
+                    outAmountToToken,
                     _vault,
                     type(uint256).max
                 )
             );
-            _codes[3] = abi.encode(toToken, abi.encodeWithSignature("approve(address,uint256)", _liquidityPool, 0));
+            _codes[3] = abi.encode(toToken, abi.encodeWithSignature("approve(address,uint256)", quickswapRouter, 0));
             _codes[4] = abi.encode(
                 toToken,
-                abi.encodeWithSignature("approve(address,uint256)", quickswapRouter, outAmountB)
+                abi.encodeWithSignature(
+                    "approve(address,uint256)",
+                    quickswapRouter,
+                    outAmountToToken + IERC20(toToken).balanceOf(_vault)
+                )
             );
             address[] memory path = new address[](2);
             path[0] = toToken;
             path[1] = _underlyingToken;
+            uint256 _swapOutAmount = _calculateSwapOutAmount(
+                ((outAmountToToken + IERC20(toToken).balanceOf(_vault)) * 997) / 1000,
+                toToken,
+                _underlyingToken
+            );
             _codes[5] = abi.encode(
                 quickswapRouter,
                 abi.encodeWithSignature(
                     "swapExactTokensForTokens(uint256,uint256,address[],address,uint256)",
-                    outAmountB,
-                    0,
+                    outAmountToToken + IERC20(toToken).balanceOf(_vault),
+                    (_swapOutAmount *
+                        (DENOMINATOR - liquidityPoolToWantTokenToSlippage[_liquidityPool][_underlyingToken])) /
+                        DENOMINATOR,
                     path,
                     _vault,
                     type(uint256).max
@@ -302,12 +456,16 @@ contract QuickSwapPoolAdapter is IAdapter, IAdapterInvestLimit, AdapterModifiers
         address _underlyingToken,
         address _liquidityPool
     ) public view override returns (uint256) {
+        address toToken = IUniswapV2Pair(_liquidityPool).token1();
+        if (toToken == _underlyingToken) {
+            toToken = IUniswapV2Pair(_liquidityPool).token0();
+        }
         return
             getSomeAmountInToken(
                 _underlyingToken,
                 _liquidityPool,
                 getLiquidityPoolTokenBalance(_vault, _underlyingToken, _liquidityPool)
-            );
+            ) + _calculateSwapOutAmount(IERC20(toToken).balanceOf(_vault), toToken, _underlyingToken);
     }
 
     /**
@@ -331,16 +489,17 @@ contract QuickSwapPoolAdapter is IAdapter, IAdapterInvestLimit, AdapterModifiers
     ) public view override returns (uint256) {
         (uint256 reserve0, uint256 reserve1, ) = IUniswapV2Pair(_liquidityPool).getReserves();
         uint256 _totalSupply = _getPoolTotalSupply(_liquidityPool, reserve0, reserve1);
-        if (IUniswapV2Pair(_liquidityPool).token0() != _underlyingToken) {
-            (reserve0, reserve1) = (reserve1, reserve0);
+        address toToken = IUniswapV2Pair(_liquidityPool).token1();
+        {
+            if (toToken == _underlyingToken) {
+                (reserve0, reserve1) = (reserve1, reserve0);
+                toToken = IUniswapV2Pair(_liquidityPool).token0();
+            }
+            _isPoolBalanced(_underlyingToken, toToken, reserve0, reserve1, _liquidityPool);
         }
         uint256 underlyingTokenAmount = (reserve0 * _liquidityPoolTokenAmount) / _totalSupply;
         uint256 swapTokenAmount = (reserve1 * _liquidityPoolTokenAmount) / _totalSupply;
-        uint256 swapOutAmount = UniswapV2Library.getAmountOut(
-            swapTokenAmount,
-            reserve1 - swapTokenAmount,
-            reserve0 - underlyingTokenAmount
-        );
+        uint256 swapOutAmount = _calculateSwapOutAmount(swapTokenAmount, toToken, _underlyingToken);
         return underlyingTokenAmount + swapOutAmount;
     }
 
@@ -352,53 +511,35 @@ contract QuickSwapPoolAdapter is IAdapter, IAdapterInvestLimit, AdapterModifiers
     }
 
     /**
-     * @inheritdoc IAdapterInvestLimit
-     */
-    function setMaxDepositAmount(
-        address _liquidityPool,
-        address _underlyingToken,
-        uint256 _maxDepositAmount
-    ) external override onlyRiskOperator {
-        maxDepositAmount[_liquidityPool][_underlyingToken] = _maxDepositAmount;
-        emit LogMaxDepositAmount(_maxDepositAmount, msg.sender);
-    }
-
-    /**
-     * @inheritdoc IAdapterInvestLimit
-     */
-    function setMaxDepositPoolPct(address _liquidityPool, uint256 _maxDepositPoolPct)
-        external
-        override
-        onlyRiskOperator
-    {
-        maxDepositPoolPct[_liquidityPool] = _maxDepositPoolPct;
-        emit LogMaxDepositPoolPct(_maxDepositPoolPct, msg.sender);
-    }
-
-    /**
-     * @inheritdoc IAdapterInvestLimit
-     */
-    function setMaxDepositProtocolPct(uint256 _maxDepositProtocolPct) external override onlyRiskOperator {
-        maxDepositProtocolPct = _maxDepositProtocolPct;
-        emit LogMaxDepositProtocolPct(_maxDepositProtocolPct, msg.sender);
-    }
-
-    /**
-     * @inheritdoc IAdapterInvestLimit
-     */
-    function setMaxDepositProtocolMode(MaxExposure _mode) external override onlyRiskOperator {
-        maxDepositProtocolMode = _mode;
-        emit LogMaxDepositProtocolMode(_mode, msg.sender);
-    }
-
-    /**
-     * @dev Get the swap amount to deposit either token in QuickSwap liquidity pool
+     * @dev Get the swap amount to deposit either token in Quickswap liquidity pool
      * @param reserveIn Reserve amount of the deposit token
+     * @param reserveOut Reserve amount of the other token in the pair
      * @param userIn Input amount of the deposit token
+     * @param remainingAmountOut Amount of the wanted token that remains in the vault
      * @return Amount to swap of the deposit token
      */
-    function _calculateSwapInAmount(uint256 reserveIn, uint256 userIn) internal pure returns (uint256) {
-        return (Babylonian.sqrt(reserveIn * (userIn * 3988000 + reserveIn * 3988009)) - (reserveIn * 1997)) / 1994;
+    function _calculateSwapInAmount(
+        uint256 reserveIn,
+        uint256 reserveOut,
+        uint256 userIn,
+        uint256 remainingAmountOut
+    ) internal pure returns (uint256) {
+        return
+            (((Babylonian.sqrt(reserveIn * (remainingAmountOut + reserveOut))) *
+                (
+                    Babylonian.sqrt(
+                        userIn *
+                            reserveOut *
+                            3988000 +
+                            reserveIn *
+                            reserveOut *
+                            3988009 +
+                            reserveIn *
+                            remainingAmountOut *
+                            9
+                    )
+                )) - (reserveIn * 1997 * (remainingAmountOut + reserveOut))) /
+            (1994 * (remainingAmountOut + reserveOut));
     }
 
     /**
@@ -438,7 +579,50 @@ contract QuickSwapPoolAdapter is IAdapter, IAdapterInvestLimit, AdapterModifiers
     }
 
     /**
-     * @dev Get the totalSupply of liquidty Pool
+     * @dev Get the expected amount to receive of _token1 after swapping _token0
+     * @param _swapInAmount Amount of _token0 to be swapped for _token1
+     * @param _token0 Contract address of one of the liquidity pool's underlying tokens
+     * @param _token1 Contract address of one of the liquidity pool's underlying tokens
+     */
+    function _calculateSwapOutAmount(
+        uint256 _swapInAmount,
+        address _token0,
+        address _token1
+    ) internal view returns (uint256 _swapOutAmount) {
+        uint256 price = optyFiOracle.getTokenPrice(_token0, _token1);
+        require(price > uint256(0), "!price");
+        uint256 decimals0 = uint256(IERC20Metadata(_token0).decimals());
+        uint256 decimals1 = uint256(IERC20Metadata(_token1).decimals());
+        _swapOutAmount = (_swapInAmount * price * 10**decimals1) / 10**(18 + decimals0);
+    }
+
+    /**
+     * @dev Check whether the pool is balanced or not according to OptyFi Oracle's prices
+     * @param _token0 Contract address of one of the liquidity pool's underlying tokens
+     * @param _token1 Contract address of one of the liquidity pool's underlying tokens
+     * @param _reserve0 Liquidity pool's reserve for _token0
+     * @param _reserve1 Liquidity pool's reserve for _token1
+     * @param _liquidityPool Liquidity pool's contract address
+     */
+    function _isPoolBalanced(
+        address _token0,
+        address _token1,
+        uint256 _reserve0,
+        uint256 _reserve1,
+        address _liquidityPool
+    ) internal view {
+        uint256 price = optyFiOracle.getTokenPrice(_token0, _token1);
+        require(price > uint256(0), "!price");
+        uint256 decimals0 = uint256(IERC20Metadata(_token0).decimals());
+        uint256 decimals1 = uint256(IERC20Metadata(_token1).decimals());
+        uint256 quickswapPrice = (_reserve1 * 10**(36 - decimals1)) / (_reserve0 * 10**(18 - decimals0));
+        uint256 upperLimit = (price * (DENOMINATOR + liquidityPoolToTolerance[_liquidityPool])) / DENOMINATOR;
+        uint256 lowerLimit = (price * (DENOMINATOR - liquidityPoolToTolerance[_liquidityPool])) / DENOMINATOR;
+        require((quickswapPrice < upperLimit) && (quickswapPrice > lowerLimit), "!imbalanced pool");
+    }
+
+    /**
+     * @dev Get the totalSupply of liquidity Pool
      * @param _liquidityPool Liquidity pool's contract address
      * @param _reserve0 reserve value of token0
      * @param _reserve1 reserve value of token1
@@ -450,7 +634,7 @@ contract QuickSwapPoolAdapter is IAdapter, IAdapterInvestLimit, AdapterModifiers
         uint256 _reserve1
     ) internal view returns (uint256 _totalSupply) {
         _totalSupply = IUniswapV2Pair(_liquidityPool).totalSupply();
-        if (factoryRouter.feeTo() != address(0)) {
+        if (quickswapFactory.feeTo() != address(0)) {
             uint256 _kLast = IUniswapV2Pair(_liquidityPool).kLast();
             if (_kLast != 0) {
                 uint256 rootK = Babylonian.sqrt(_reserve0 * _reserve1);
