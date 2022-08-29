@@ -44,7 +44,7 @@ contract QuickSwapPoolAdapter is IAdapter, IAdapterInvestLimit, AdapterModifiers
     /** @notice Quickswap factory contract on Polygon mainnet */
     IUniswapV2Factory public constant quickswapFactory = IUniswapV2Factory(0x5757371414417b8C6CAad45bAeF941aBc7d3Ab32);
 
-    /** @notice Sushiswap WMATIC-USDC liquidity pool address */
+    /** @notice Quickswap WMATIC-USDC liquidity pool address */
     address public constant WMATIC_USDC = address(0x6e7a5FAFcec6BB1e78bAE2A1F0B612012BF14827);
 
     /** @notice WMATIC token address*/

@@ -84,11 +84,6 @@ export function shouldBehaveLikeQuickSwapPoolAdapter(
     const _underlyingTokenBalanceInVaultAfterDeposit = await underlyingTokenInstance.balanceOf(
       this.testDeFiAdapter.address,
     );
-    const actualAmountInTokenAfterDeposit = await this.quickSwapPoolAdapter.getAllAmountInToken(
-      this.testDeFiAdapter.address,
-      underlyingTokenInstance.address,
-      pool.pool,
-    );
     const vaultToTokenBalance = await this.testDeFiAdapter.getERC20TokenBalance(
       toTokenInstance.address,
       this.testDeFiAdapter.address,
