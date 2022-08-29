@@ -15,7 +15,7 @@ export function shouldBehaveLikeQuickSwapPoolAdapter(
   poolName: string,
   pool: PoolItem,
 ): void {
-  it(`should deposit ${underlyingTokenName} and withdraw ${underlyingTokenName} in ${poolName} pool of Sushiswap`, async function () {
+  it(`should deposit ${underlyingTokenName} and withdraw ${underlyingTokenName} in ${poolName} pool of Quickswap`, async function () {
     if (pool.deprecated == true) {
       this.skip();
     }
