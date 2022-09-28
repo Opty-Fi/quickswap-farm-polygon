@@ -4,6 +4,7 @@ import { QuickSwapPoolAdapter } from "../../typechain/QuickSwapPoolAdapter";
 import { QuickSwapFarmAdapter } from "../../typechain/QuickSwapFarmAdapter";
 import { IUniswapV2Router02 } from "../../typechain/IUniswapV2Router02";
 import { TestDeFiAdapter } from "../../typechain/TestDeFiAdapter";
+import { OptyFiOracle } from "../../typechain/OptyFiOracle";
 
 export interface Signers {
   admin: SignerWithAddress;
@@ -23,12 +24,25 @@ export interface Signers {
   wbtcWhale: SignerWithAddress;
 }
 
+export interface PoolItem {
+  pool: string;
+  token0: string;
+  token1: string;
+  deprecated?: boolean;
+  slippage: number;
+}
+
+export interface LiquidityPool {
+  [name: string]: PoolItem;
+}
+
 declare module "mocha" {
   export interface Context {
     quickSwapPoolAdapter: QuickSwapPoolAdapter;
     quickSwapFarmAdapter: QuickSwapFarmAdapter;
     testDeFiAdapter: TestDeFiAdapter;
-    uniswapV2Router02: IUniswapV2Router02;
+    quickswapRouter: IUniswapV2Router02;
+    optyFiOracle: OptyFiOracle;
     loadFixture: <T>(fixture: Fixture<T>) => Promise<T>;
     qsigners: Signers;
   }

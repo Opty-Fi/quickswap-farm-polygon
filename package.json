@@ -91,7 +91,7 @@
     "prettier": "prettier --config ./.prettierrc.yaml --write \"**/*.{js,json,md,sol,ts}\"",
     "prettier:check": "prettier --check --config ./.prettierrc.yaml \"**/*.{js,json,md,sol,ts}\"",
     "test:ethereum:fork": "cross-env FORK=main NETWORK=main TS_NODE_TRANSPILE_ONLY=1 hardhat --max-memory 4096 test ./test/1_ethereum/**/*.ts",
-    "test:matic:fork": "cross-env FORK=matic NETWORK=matic TS_NODE_TRANSPILE_ONLY=1 hardhat --max-memory 4096 test ./test/2_matic/**/*.ts",
+    "test:matic:fork": "cross-env FORK=matic NETWORK=matic TS_NODE_TRANSPILE_ONLY=1 hardhat --max-memory 4096 test ./test/2_matic/quickswap-pool/*.ts",
     "test:avalanche:fork": "cross-env FORK=avalanche NETWORK=avalanche TS_NODE_TRANSPILE_ONLY=1 hardhat --max-memory 4096 test ./test/3_avalanche/**/*.ts",
     "test:arbitrum:fork": "cross-env FORK=arbitrum NETWORK=arbitrum TS_NODE_TRANSPILE_ONLY=1 hardhat --max-memory 4096 test ./test/4_arbitrum/**/*.ts",
     "test:xdai:fork": "cross-env FORK=xdai NETWORK=xdai TS_NODE_TRANSPILE_ONLY=1 hardhat --max-memory 4096 test ./test/5_xdai/**/*.ts",
@@ -111,8 +111,9 @@
     "node": ">=12.0.0"
   },
   "dependencies": {
+    "@chainlink/contracts": "^0.4.1",
     "@openzeppelin/contracts-0.8.x": "npm:@openzeppelin/contracts@4.4.1",
-    "@optyfi/defi-legos": "0.1.0-rc.15",
+    "@optyfi/defi-legos": "0.1.0-rc.33",
     "@uniswap/v2-periphery": "^1.1.0-beta.0"
   }
 }

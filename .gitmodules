@@ -1,0 +1,4 @@
+[submodule "contracts/utils/optyfi-oracle"]
+	path = contracts/utils/optyfi-oracle
+	url = git@github.com:Opty-Fi/optyfi-oracle.git
+	branch = feat/inverse-price
