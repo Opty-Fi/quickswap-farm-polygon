@@ -30,13 +30,6 @@ export function shouldBehaveLikeQuickSwapFarmAdapter(
     const quickTokenAddress: string = getAddress("0x831753DD7087CaC61aB5644b308642cc1c33Dc13");
     const quickTokenInstance = await hre.ethers.getContractAt(IERC20_ARTIFACT_PATH, quickTokenAddress);
 
-    await this.quickSwapFarmAdapter
-      .connect(this.qsigners.riskOperator)
-      .setMaxDepositProtocolMode(0, getOverrideOptions());
-    await this.quickSwapFarmAdapter
-      .connect(this.qsigners.riskOperator)
-      .setMaxDepositAmount(pool, underlyingToken, hre.ethers.utils.parseEther("10000"), getOverrideOptions());
-
     // 1. Deposit Some underlying tokens
     const token1Balance = await this.testDeFiAdapter.getERC20TokenBalance(token1Address, this.qsigners.alice.address);
     const token2Balance = await this.testDeFiAdapter.getERC20TokenBalance(token2Address, this.qsigners.alice.address);
@@ -250,14 +243,6 @@ export function shouldBehaveLikeQuickSwapFarmAdapter(
     );
     expect(calculateAmountInLPToken).to.be.eq(100);
 
-    // set maxDepositPoolPct is 10%
-    await this.quickSwapFarmAdapter
-      .connect(this.qsigners.riskOperator)
-      .setMaxDepositPoolPct(pool, 1000, getOverrideOptions());
-    // set maxDepositProtocolPct is 10%
-    await this.quickSwapFarmAdapter
-      .connect(this.qsigners.riskOperator)
-      .setMaxDepositProtocolPct(1000, getOverrideOptions());
     // call getAddLiquidityCodes function
     await this.quickSwapFarmAdapter.getAddLiquidityCodes(this.testDeFiAdapter.address, underlyingToken);
     // assert whether deposit code when lpToken amount is 0
@@ -284,25 +269,5 @@ export function shouldBehaveLikeQuickSwapFarmAdapter(
       0,
       getOverrideOptions(),
     );
-
-    // 7. Coverage Test Fail case
-    // asserts whether the function caller is this contract's adjuster or not
-    await expect(
-      this.quickSwapFarmAdapter
-        .connect(this.qsigners.admin)
-        .setMaxDepositAmount(pool, underlyingToken, hre.ethers.utils.parseEther("100"), getOverrideOptions()),
-    ).to.be.revertedWith("caller is not the riskOperator");
-    // asserts whether the function caller is this contract's adjuster or not
-    await expect(
-      this.quickSwapFarmAdapter.connect(this.qsigners.admin).setMaxDepositPoolPct(pool, 1000, getOverrideOptions()),
-    ).to.be.revertedWith("caller is not the riskOperator");
-    // asserts whether the function caller is this contract's adjuster or not
-    await expect(
-      this.quickSwapFarmAdapter.connect(this.qsigners.admin).setMaxDepositProtocolPct(1000, getOverrideOptions()),
-    ).to.be.revertedWith("caller is not the riskOperator");
-    // asserts whether the function caller is this contract's adjuster or not
-    await expect(
-      this.quickSwapFarmAdapter.connect(this.qsigners.admin).setMaxDepositProtocolMode(0, getOverrideOptions()),
-    ).to.be.revertedWith("caller is not the riskOperator");
   }).timeout(100000);
 }

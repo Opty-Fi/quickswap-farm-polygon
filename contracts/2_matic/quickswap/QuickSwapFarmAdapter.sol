@@ -10,7 +10,6 @@ import "../../utils/AdapterModifiersBase.sol";
 import { IERC20 } from "@openzeppelin/contracts-0.8.x/token/ERC20/IERC20.sol";
 import { IAdapter } from "@optyfi/defi-legos/interfaces/defiAdapters/contracts/IAdapter.sol";
 import { IAdapterHarvestReward } from "@optyfi/defi-legos/interfaces/defiAdapters/contracts/IAdapterHarvestReward.sol";
-import { IAdapterInvestLimit, MaxExposure } from "@optyfi/defi-legos/interfaces/defiAdapters/contracts/IAdapterInvestLimit.sol";
 import { IUniswapV2Router02 } from "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
 import { IUniswapV2Pair } from "@uniswap/v2-core/contracts/interfaces/IUniswapV2Pair.sol";
 import { IStakingRewards } from "../../utils/interfaces/IStakingRewards.sol";
@@ -21,7 +20,7 @@ import { IStakingRewards } from "../../utils/interfaces/IStakingRewards.sol";
  * @dev Abstraction layer to quickswap farm's pools
  */
 
-contract QuickSwapFarmAdapter is IAdapter, IAdapterHarvestReward, IAdapterInvestLimit, AdapterModifiersBase {
+contract QuickSwapFarmAdapter is IAdapter, IAdapterHarvestReward, AdapterModifiersBase {
     /**
      * @notice Uniswap V2 router contract address
      */
@@ -29,19 +28,12 @@ contract QuickSwapFarmAdapter is IAdapter, IAdapterHarvestReward, IAdapterInvest
     address public constant quickToken = address(0x831753DD7087CaC61aB5644b308642cc1c33Dc13);
     address public constant wethToken = address(0x7ceB23fD6bC0adD59E62ac25578270cFf1b9f619);
 
-    mapping(address => mapping(address => uint256)) public maxDepositAmount;
-    mapping(address => uint256) public maxDepositPoolPct;
-    uint256 public maxDepositProtocolPct;
-    MaxExposure public maxDepositProtocolMode;
     uint256 public constant DENOMINATOR = 10000;
 
-    /* solidity-disable no-empty-blocks*/
-    constructor(address _registry) AdapterModifiersBase(_registry) {
-        maxDepositProtocolPct = uint256(10000); // 100%
-        maxDepositProtocolMode = MaxExposure.Pct;
-    }
+    /* solhint-disable no-empty-blocks*/
+    constructor(address _registry) AdapterModifiersBase(_registry) {}
 
-    /* solidity-enable no-empty-blocks*/
+    /* solhint-enable no-empty-blocks*/
 
     /**
      * @inheritdoc IAdapter
@@ -282,46 +274,6 @@ contract QuickSwapFarmAdapter is IAdapter, IAdapterHarvestReward, IAdapterInvest
      * @inheritdoc IAdapterHarvestReward
      */
     function getAddLiquidityCodes(address payable, address) public view override returns (bytes[] memory) {}
-
-    /**
-     * @inheritdoc IAdapterInvestLimit
-     */
-    function setMaxDepositAmount(
-        address _liquidityPool,
-        address _underlyingToken,
-        uint256 _maxDepositAmount
-    ) external override onlyRiskOperator {
-        maxDepositAmount[_liquidityPool][_underlyingToken] = _maxDepositAmount;
-        emit LogMaxDepositAmount(_maxDepositAmount, msg.sender);
-    }
-
-    /**
-     * @inheritdoc IAdapterInvestLimit
-     */
-    function setMaxDepositPoolPct(address _liquidityPool, uint256 _maxDepositPoolPct)
-        external
-        override
-        onlyRiskOperator
-    {
-        maxDepositPoolPct[_liquidityPool] = _maxDepositPoolPct;
-        emit LogMaxDepositPoolPct(_maxDepositPoolPct, msg.sender);
-    }
-
-    /**
-     * @inheritdoc IAdapterInvestLimit
-     */
-    function setMaxDepositProtocolPct(uint256 _maxDepositProtocolPct) external override onlyRiskOperator {
-        maxDepositProtocolPct = _maxDepositProtocolPct;
-        emit LogMaxDepositProtocolPct(_maxDepositProtocolPct, msg.sender);
-    }
-
-    /**
-     * @inheritdoc IAdapterInvestLimit
-     */
-    function setMaxDepositProtocolMode(MaxExposure _mode) external override onlyRiskOperator {
-        maxDepositProtocolMode = _mode;
-        emit LogMaxDepositProtocolMode(_mode, msg.sender);
-    }
 
     /* solhint-enable no-empty-blocks */
     /**
